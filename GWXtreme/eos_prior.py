@@ -20,15 +20,57 @@ import typing
 import numpy
 import scipy.stats
 import h5py
-
+import lalsimulation
+import lal
 
 largest_ns_mass = 1.97
 
-MassRangeType = typing.List[typing.Tuple[Numeric,Numeric]]
+def eos_p_of_rho(rho,eos):
+    '''
+    Calculates log10 pressure as a function of density rho
+    for any eos.
+    
+    rho     ::     An array of densities in g cm^-3.
+    
+    eos     ::     A lalsimulation.SimNeurtronStarEOS*
+                   object.
+                   
+    '''
+    
+    FAM=lalsimulation.CreateSimNeutronStarFamily(eos)
+    p_max_i = min(6e35, lalsimulation.SimNeutronStarEOSMaxPressure(eos))
+    log10_p_grid = numpy.linspace(*numpy.log10([5e31, p_max_i]), 128)
+    p_grid = numpy.power(10.0, log10_p_grid)
+    rho_grid = numpy.empty_like(p_grid)
+    for j, p in numpy.ndenumerate(p_grid):
+                h = lalsimulation.SimNeutronStarEOSPseudoEnthalpyOfPressure(p, eos)
+                rho_grid[j] = (
+                    lalsimulation.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(
+                        h, eos,
+                    )
+                )
+
+
+    log10_rho_grid = numpy.log10(rho_grid)
+    log10_p_out = numpy.interp(
+                numpy.log10(rho), log10_rho_grid, log10_p_grid,
+                left=numpy.NINF, right=numpy.NINF,
+            )
+    return log10_p_out
 
 
 def spectral_eos(eos_parameters: tuple) -> typing.Any:
-    import lalsimulation
+    '''
+    Creates a lalsimulation.SimNeutronStarEOS* object
+    for the 4 parameter spectral decomposition (spectral eos)
+    , given a particular value of spectral parameters.
+    
+    eos_parameters  ::  (gamma_1,gamma_2,gamma3,gamma4),
+                        a tuple of the four spectral parameters
+                        describing the eos.
+    
+    '''
+    
 
     
     gamma1, gamma2, gamma3, gamma4 = eos_parameters
@@ -39,9 +81,41 @@ def spectral_eos(eos_parameters: tuple) -> typing.Any:
 
     return eos
 
-def spectral_eos_adiabatic_index(
-        x: Numeric, spectral_parameters: tuple,
-    ) -> Numeric:
+def polytrope_eos(eos_parameters: tuple) -> typing.Any:
+    '''
+    Creates a lalsimulation.SimNeutronStarEOS* object
+    for the piece-wise polytropic EoS,  given
+    a particular value of the central pressure and 
+    the adiabatic indices.
+    
+    eos_parameters  ::  (\log p_0,\Gamma1,\Gamma2,\Gamma3),
+                        a tuple of the four parameters describing
+                        the eos.
+    
+    '''
+
+    logP1, gamma1, gamma2, gamma3 = eos_parameters
+
+    return lalsimulation.SimNeutronStarEOS4ParameterPiecewisePolytrope(
+        logP1,
+        gamma1, gamma2, gamma3,
+    )
+
+
+def spectral_eos_adiabatic_index(x,spectral_parameters):
+    '''
+    returns the adiabatic index at a particular value of log pressure,
+    using the spectral eos, given a particular choice of spectral
+    parameters.
+    
+    x                  ::    An array of log10 pressure at which to 
+                             evaluate the adiabatic index
+                   
+    spectral_parameters :: (gamma1,gamma2,gamma3,gamma4), spectral 
+                            parameters describing the eos
+    
+    '''
+    
     x_sq = x * x
     x_cu = x_sq * x
 
@@ -57,30 +131,37 @@ def spectral_eos_adiabatic_index(
     return numpy.exp(log_gamma)
 
 
-
-def is_valid_adiabatic_index(spectral_parameters: tuple):
-    # Confirm that the adiabatic index is within a tolerable range.
-    Gamma = spectral_eos_adiabatic_index(_x_grid, spectral_parameters)
-    return (0.6 < Gamma).all() and (Gamma < 4.5).all()
-
-
 _x_min = 0.0
 _x_max = 12.3081
 _x_grid = numpy.linspace(_x_min, _x_max, 500)
 
-def polytrope_eos(eos_parameters: tuple) -> typing.Any:
-    import lalsimulation
 
-    logP1, gamma1, gamma2, gamma3 = eos_parameters
 
-    return lalsimulation.SimNeutronStarEOS4ParameterPiecewisePolytrope(
-        logP1,
-        gamma1, gamma2, gamma3,
-    )
+def is_valid_adiabatic_index(spectral_parameters: tuple):
+    '''
+    Confirm that the adiabatic index is within a tolerable range
+    for the spectral eos.
+    
+    spectral_parameters :: (gamma1,gamma2,gamma3,gamma4), spectral 
+                            parameters describing the eos.
+    '''
+    
+    Gamma = spectral_eos_adiabatic_index(_x_grid, spectral_parameters)
+    return (0.6 < Gamma).all() and (Gamma < 4.5).all()
+
+
 
 
 def has_enough_points(eos: typing.Any) -> bool:
-    import lalsimulation
+    '''
+    Confirm that the TOV solver returns increasing 
+    masses for increasing pressure for at least 8 points
+    in the pressure grid. If this is not true, lalsimulation
+    might return interpolation errors.
+    
+    eos  ::   A lalsimulation.SimNeutronStarEOS* object.
+    
+    '''
 
     min_points = 8
 
@@ -104,7 +185,14 @@ def has_enough_points(eos: typing.Any) -> bool:
     return True
 
 def eos_max_sound_speed(eos: typing.Any, eos_fam: typing.Any) -> float:
-    import lalsimulation
+    '''
+    Compute the maximum sound speed for a given eos and eos family.
+    
+    eos          ::     A lalsimulation.SimNeutronStarEOS* object.
+    
+    eos_fam      ::     A lalsimulation.CreateSimNeutronStarFamily object.
+    
+    '''
 
     # Maximum allowed mass
     m_max_kg = lalsimulation.SimNeutronStarMaximumMass(eos_fam)
@@ -118,6 +206,16 @@ def eos_max_sound_speed(eos: typing.Any, eos_fam: typing.Any) -> float:
 
 
 def is_causal_eos(eos: typing.Any, eos_fam: typing.Any) -> bool:
+    ''' 
+    Check if the maximum sound speed of an eos is less 
+    than the speed of light upto a buffer of 10%.
+    
+    eos          ::     A lalsimulation.SimNeutronStarEOS* object.
+    
+    eos_fam      ::     A lalsimulation.CreateSimNeutronStarFamily object.
+    
+    '''
+    
     c_max = eos_max_sound_speed(eos, eos_fam)
 
     # Confirm that the sound speed is less than speed of light, with an added
@@ -127,9 +225,13 @@ def is_causal_eos(eos: typing.Any, eos_fam: typing.Any) -> bool:
 
 
 def eos_mass_range(eos_fam: typing.Any) -> typing.Tuple[float,float]:
-    import lal
-    import lalsimulation
-
+    '''
+    Find the maximum and minimun mass of an eos family.
+    
+    eos_fam      ::     A lalsimulation.CreateSimNeutronStarFamily 
+                        object.
+    '''
+    
     m_min = lalsimulation.SimNeutronStarFamMinimumMass(eos_fam)
     m_max = lalsimulation.SimNeutronStarMaximumMass(eos_fam)
 
@@ -146,13 +248,40 @@ def eos_mass_range(eos_fam: typing.Any) -> typing.Tuple[float,float]:
 
 def is_valid_eos(
         parameters, prior_settings,
-        eos_coordinates="spectral", largest_ns_mass=largest_ns_mass,
-        require_mass_ranges: typing.Optional[MassRangeType]=None,
+        spectral=True, largest_ns_mass=largest_ns_mass,
+        require_mass_ranges=None,
     ):
-    import lalsimulation
-    if(eos_coordinates=="spectral"):
+    
+    '''
+    Main eos prior. Checks if for a given value of eos parameters, a 
+    range of allowed parameters and eos coordinates, all the priors of
+    causality, observational consistency of maximum mass, thermal stability
+    and enough points for interpolation are all satisfied simultaneously.
+    
+    parameters          ::   A choice of the four parameters,  (gamma1,gamma2,
+                             gamma3,gamma4) if spectral=True , or
+                             (\log p_0,\Gamma1,\Gamma2,\Gamma3) if spectral=
+                             'polytropic'.
+    prior_settings      ::   A dictionary containing the allowed range of eos parameters
+                             . example for spectral=True : {'gamma1':{'params'
+                             :{"min":0.2,"max":2.00}},'gamma2':{'params':{"min":-1.6,"max":
+                             1.7}},'gamma3':{'params':{"min":-0.6,"max":0.6}},'gamma4':{
+                             'params':{"min":-0.02,"max":0.02}}} .
+                          
+    spectral            ::    Specifies eos parametrization, if True then spectral eos is 
+                              considered. if False, polytropic eos is considered.
+                        
+    
+    largest_ns_mass     ::    Largest observed NS mass in solar units. default is 1.97 .
+    
+    require_mass_ranges ::    A range of masses inside which the maximum and minimum mass
+                              of the eos must lie. default is None.
+                              
+    '''
+                          
+    if(spectral):
         
-        gamma1, gamma2, gamma3, gamma4 = parameters['gamma1'],parameters[' gamma2'],parameters[' gamma3'],parameters[' gamma4']
+        gamma1, gamma2, gamma3, gamma4 = parameters['gamma1'],parameters['gamma2'],parameters['gamma3'],parameters['gamma4']
 
         params_shape = gamma1.shape
 
@@ -231,11 +360,11 @@ def is_valid_eos(
                 else:
                     
                     valid[i] = False
-    elif(eos_coordinates=="polytropic"):
+    else:
         
-        logP, gamma1, gamma2, gamma3 =  parameters["logP"],
-            parameters['gamma1'],
-            parameters['gamma2'],
+        logP, gamma1, gamma2, gamma3 =  parameters["logP"],\
+            parameters['gamma1'],\
+            parameters['gamma2'],\
             parameters['gamma3']
 
         params_shape = logP.shape
@@ -309,8 +438,8 @@ def is_valid_eos(
                 else:
                     
                     valid[i] = False
-    else:
-         raise ValueError("Does not have a known EOS coordinate system.")
     return valid
+
+
 
 
