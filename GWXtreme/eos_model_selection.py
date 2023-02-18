@@ -75,6 +75,19 @@ def get_LambdaT_for_eos(m1, m2, max_mass_eos, eosfunc):
 
     return LambdaT
 
+def integrator_mr(m_min,m_max,max_mass_eos,eos_func,postfunc,gridN=1000,var_m=1.,var_r=1.):#,inverse_prior_func=lambda x,y:1.0):
+    
+    M = np.linspace(m_min,m_max,gridN)
+    R = M*2.9
+    kerr_case = M< max_mass_eos
+    R[kerr_case] = eos_func(M[kerr_case])
+    dM = np.diff(M)
+    f = postfunc.evaluate(np.vstack((R/var_r, M/var_m)).T)#*inverse_prior_func(R,M)
+    f_centers = 0.5*(f[1:] + f[:-1])
+    int_element = f_centers * dM
+
+    return [R, M, np.sum(int_element)]
+    
 
 # The integrator function #
 def integrator(q_min, q_max, mc, eosfunc, max_mass_eos, postfunc,
@@ -198,8 +211,323 @@ def get_trials(fd):
     return sup_array
 
 
+    
+class Model_selection_em:
+    def __init__(self, posteriorFile, priorFile=None, spectral=False,Ns=4000,mr=False,inverse_mr_prior=lambda x,y: 1.0,fixed=False):
+        '''
+        Initiates the Bayes factor calculator with the posterior
+        samples from the uniform LambdaT, dLambdaT parameter
+        estimation runs.
+
+        posteriorFile :: The full path to the posterior_samples.dat
+                         file
+
+        priorFile     :: The full path to the priors file (optional).
+                         If the prior file is supplied, the mass
+                         boundaries for the KDE computation is
+                         obtained from the prior file. If this is not
+                         supplied, the posterior samples will be used
+                         to determine the bounds.
+
+        spectral      :: Distinguishes between piecewise polytrope and spectral 
+                         decomposition method.
+                         
+        Ns            :: Number of Samples to be used for KDE. (Using all samples 
+                         from PE will make it very slow)
+                         
+        '''
+        self.data = np.recfromtxt(posteriorFile, names=True)
+        self.inverse_prior = inverse_mr_prior
+        self.minMass = 0.8
+        self.maxMass = 3.0
+        self.m_min = self.minMass
+        self.var_r = np.std(self.data['radius'][0::int(len(self.data['radius'])/Ns)])
+        self.var_m = np.std(self.data['mass'][0::int(len(self.data['mass'])/Ns)])
+
+        
+        
+
+        self.margPostData = np.vstack((self.data['radius'][0::int(len(self.data['radius'])/Ns)]/self.var_r,
+                                       self.data['mass'][0::int(len(self.data['mass'])/Ns)]/self.var_m)).T
+        self.bw = len(self.margPostData)**(-1/6.)  # Scott's bandwidth factor
+
+        # Compute the KDE for the marginalized posterior distribution #
+        self.kde = Bounded_2d_kde(self.margPostData,
+                                  xlow=None,
+                                  xhigh=None,
+                                  ylow=None,
+                                  yhigh= None, weights = self.inverse_prior(self.data['radius'][0::int(len(self.data['radius'])/Ns)],self.data['mass'][0::int(len(self.data['mass'])/Ns)]))
+
+        # Attribute that distinguishes parametrization method
+        self.spectral = spectral
+        
+        
+    def getEoSInterp_parametrized(self, params, N=100,m_min=0.8):
+        '''
+        This method accepts a four parameter description of the neutron star 
+        equation of state, and returns a list [s, m_min, max_mass] where s is 
+        the interpolation function for the mass and the tidal deformability.
+
+        params      :: Four parameter list.
+
+        N           :: Number of points that will be used for the
+                       construction of the interpolant.
+        '''
+
+        if not self.spectral :
+            log_p1_SI, g1, g2, g3 = params
+            eos = lalsim.SimNeutronStarEOS4ParameterPiecewisePolytrope(log_p1_SI, g1, g2, g3)
+        else:
+            g0, g1, g2, g3 = params
+            eos = lalsim.SimNeutronStarEOS4ParameterSpectralDecomposition(g0, g1, g2, g3)
+
+        fam = lalsim.CreateSimNeutronStarFamily(eos)
+        max_mass = lalsim.SimNeutronStarMaximumMass(fam)/lal.MSUN_SI
+        
+        # This is necessary so that interpolant is computed over the full range
+        # Keeping number upto 3 decimal places
+        # Not rounding up, since that will lead to RuntimeError
+
+        max_mass = int(max_mass*1000)/1000
+        masses = np.linspace(m_min, max_mass, N)
+        masses = masses[masses <= max_mass]
+        Lambdas = []
+        gravMass = []
+        for m in masses:
+            try:
+                rr = lalsim.SimNeutronStarRadius(m*lal.MSUN_SI, fam)
+                Lambdas.append(rr/1000.)
+                gravMass.append(m)
+            except RuntimeError:
+                break
+        Lambdas = np.array(Lambdas)
+        gravMass = np.array(gravMass)
+        s = interp1d(gravMass, Lambdas)
+        
+        return([s, m_min, max_mass])
+    
+    def getEoSInterp(self, eosname=None, m_min=0.8, N=100):
+        '''
+        This method accepts one of the NS native equations of state
+        and uses that to return a list [s, mass, Λ, max_mass] where
+        s is the interpolation function for the mass and the tidal
+        deformability.
+
+        eosname     :: Equation of state native to LALsuite
+
+        m_min       :: The minimum mass of the NS from which value
+                       the interpolant will be constructed
+                       (default = 1.0).
+
+        N           :: Number of points that will be used for the
+                       construction of the interpolant.
+        '''
+
+        if eosname is None:
+            print('Allowed equation of state models are:')
+            print(lalsim.SimNeutronStarEOSNames)
+            print('Pass the model name as a string')
+            return None
+        try:
+            assert eosname in list(lalsim.SimNeutronStarEOSNames)
+        except AssertionError:
+            print('EoS family is not available in lalsimulation')
+            print('Allowed EoS are :\n' + str(lalsim.SimNeutronStarEOSNames))
+            print('Make sure that if you are passing a custom file, it exists')
+            print('in the path that you have provided...')
+            sys.exit(0)
+
+        eos = lalsim.SimNeutronStarEOSByName(eosname)
+        fam = lalsim.CreateSimNeutronStarFamily(eos)
+        max_mass = lalsim.SimNeutronStarMaximumMass(fam)/lal.MSUN_SI
+
+        # This is necessary so that interpolant is computed over the full range
+        # Keeping number upto 3 decimal places
+        # Not rounding up, since that will lead to RuntimeError
+        max_mass = int(max_mass*1000)/1000
+        masses = np.linspace(m_min, max_mass, N)
+        masses = masses[masses <= max_mass]
+        Lambdas = []
+        gravMass = []
+        for m in masses:
+            try:
+                rr = lalsim.SimNeutronStarRadius(m*lal.MSUN_SI, fam)
+                kk = lalsim.SimNeutronStarLoveNumberK2(m*lal.MSUN_SI, fam)
+                
+                Lambdas = np.append(Lambdas, rr/1000.)
+                gravMass = np.append(gravMass, m)
+            except RuntimeError:
+                break
+        Lambdas = np.array(Lambdas)
+        gravMass = np.array(gravMass)
+        s = interp1d(gravMass, Lambdas)
+
+        return [s, m_min, max_mass]
+    
+    def eos_evidence(self, params, gridN=1000):
+        '''
+        This method computes the evidence for a parametrized EoS.
+
+        params      :: Four parameter list.
+        gridN       :: Number of grid points over which the
+                       line-integral is computed. (Default = 100)
+        '''
+
+        # generate interpolator for eos
+        [s, _,
+         max_mass_eos] = self.getEoSInterp_parametrized(params, N=100, m_min=self.minMass)
+
+        # compute support
+        [_,
+         _, support2D] = integrator_mr(self.minMass, max_mass_eos,
+                                        max_mass_eos, s,  self.kde,
+                                        gridN=gridN,
+                                        var_r=self.var_r,
+                                        var_m=self.var_m)#,#inverse_prior_func = self.inverse_prior)
+
+        return(support2D)
+    
+    def computeEvidenceRatio(self, EoS1, EoS2, gridN=1000, save=None, 
+                             trials=0, verbose=False):
+        '''
+        This method computes the ratio of evidences for two
+        tabulated EoS. It first checks if a file exists with
+        the name associated with the strings EoS1 and EoS2.
+        If it does, then use method getEoSInterpFromFile,
+        else use method getEoSInterp. This computation is
+        conducted for multiple trials to get an estimation of
+        the uncertainty.
+
+        EoS1    :: The name of the first tabulated equation of
+                   state or the name of the file from which the
+                   EoS data is to be read.
+        EoS2    :: The name of the second tabulated equation of
+                   state or the name of the file from which the
+                   EoS data is to be read.
+        gridN   :: Number of grid points over which the
+                   line-integral is computed. (Default = 1000)
+        trials  :: Number of trials for estimating the
+                   uncertainty in the Bayes-factor.
+        '''
+
+        # generate interpolators for both EOS
+
+        if type(EoS1) == list:
+            [s1, _,
+             max_mass_eos1] = self.getEoSInterp_parametrized(EoS1, N=1000)
+
+        elif os.path.exists(EoS1):
+            if verbose:
+                print('Trying m-R-k file to compute EoS interpolant')
+            try:
+                [s1, _, _,
+                 max_mass_eos1] = self.getEoSInterpFromMRFile(EoS1)
+            except ValueError:
+                if verbose:
+                    print('Trying m-λ file to compute EoS interpolant')
+                [s1, _, _,
+                 max_mass_eos1] = self.getEoSInterpFromMLambdaFile(EoS1)
+        else:
+            [s1, _,
+         max_mass_eos1] = self.getEoSInterp(eosname=EoS1, m_min=self.m_min)
+             
+        if type(EoS2) == list:
+            [s2, _,
+             max_mass_eos2] = self.getEoSInterp_parametrized(EoS2, N=1000)
+
+        elif os.path.exists(EoS2):
+            if verbose:
+                print('Trying m-R-k file to compute EoS interpolant')
+            try:
+                [s2, _, _,
+                 max_mass_eos2] = self.getEoSInterpFromMRFile(EoS2)
+            except ValueError:
+                if verbose:
+                    print('Trying m-λ file to compute EoS interpolant')
+                [s2, _, _,
+                 max_mass_eos2] = self.getEoSInterpFromMLambdaFile(EoS2)
+        else:
+            [s2, _,
+         max_mass_eos2] = self.getEoSInterp(eosname=EoS2, m_min=self.m_min)
+
+        # compute support
+        [_,
+         _, support2D1] = integrator_mr(self.minMass, max_mass_eos1,
+                                        max_mass_eos1, s1,  self.kde,
+                                        gridN=gridN,
+                                        var_r=self.var_r,
+                                        var_m=self.var_m)
+
+        [_,
+         _, support2D2] = integrator_mr(self.minMass, max_mass_eos2,
+                                        max_mass_eos2, s2,  self.kde,
+                                        gridN=gridN,
+                                        var_r=self.var_r,
+                                        var_m=self.var_m)
+
+        # iterate to determine uncertainty via re-drawing from
+        # smoothed distribution
+        # NOTE: this is known to introduce a bias into the mean
+        # and variance estimate!
+
+        if trials == 0:
+            return (support2D1/support2D2)
+
+        if verbose:
+            ray.init(logging_level=1)
+        else:
+            ray.init(logging_level=40)
+        cores = multiprocessing.cpu_count()
+        if verbose:
+            print("Total number of cores in this machine: {}".format(cores))
+
+        # Splitting (nearly) equally the # of trials over the # of workers
+        if trials < cores:
+            workers = trials
+            trials_per_worker = np.ones(workers, dtype=int)
+        else:
+            workers = cores
+            split = np.array_split(np.arange(trials), workers)
+            trials_per_worker = []
+            for ii in range(cores):
+                trials_per_worker.append(len(split[ii]))
+
+        futures = []
+        for ii, this_trials, in zip(range(workers), trials_per_worker):
+            future_dict = {"margPostData": self.margPostData, "kde": self.kde,
+                           "yhigh": self.yhigh, "bw": self.bw, "q_min": self.q_min,
+                           "q_max": self.q_max, "mc_mean": self.mc_mean, "s1": s1,
+                           "s2": s2, "max_mass_eos1": max_mass_eos1,
+                           "max_mass_eos2": max_mass_eos2, "gridN": gridN,
+                           "var_LambdaT": self.var_LambdaT, "var_q": self.var_q,
+                           "minMass": self.minMass, 'trials': this_trials}
+            futures.append(get_trials.remote(future_dict))
+            if verbose:
+                print("Submitted task in core: {}".format(ii+1))
+        ray.get(futures)
+        sup_array = np.array([])
+        for future in futures:
+            sup_array = np.append(sup_array, ray.get(future))
+
+        if save:
+            bf_dict = {}
+            bf_dict['ref_eos'] = EoS2
+            bf_dict['target_eos'] = EoS1
+            bf_dict['bf'] = support2D1/support2D2
+            bf_dict['bf_array'] = sup_array.tolist()
+            # Making sure that the file extension is json
+            if (save.split('.')[-1] != 'json') and (save.split('.')[-1] != 'JSON'):
+                save += '.json'
+            with open(save, 'w') as f:
+                json.dump(bf_dict, f, indent=2, sort_keys=True)
+            if verbose:
+                print("Result saved in: {}".format(save))
+
+        ray.shutdown()
+        return [support2D1/support2D2, sup_array]
+    
 class Model_selection:
-    def __init__(self, posteriorFile, priorFile=None, spectral=False,Ns=4000):
+    def __init__(self, posteriorFile, priorFile=None, spectral=False,Ns=4000,mr=False):
         '''
         Initiates the Bayes factor calculator with the posterior
         samples from the uniform LambdaT, dLambdaT parameter
@@ -432,6 +760,7 @@ class Model_selection:
         s = interp1d(gravMass, Lambdas)
         
         return([s, m_min, max_mass])
+    
 
     def computeEvidenceRatio(self, EoS1, EoS2, gridN=1000, save=None, 
                              trials=0, verbose=False):
@@ -725,15 +1054,20 @@ class Model_selection:
             pl.title('EoS = {}'.format(text))
         pl.savefig(filename, bbox_inches='tight')
 
-
+def inverse_prior_func(r,m):
+            return r**2/m
+def inverse_prior_func_gaussian_mass(r,m):
+            return 0.09**2*np.exp(0.5*(m-2.08)**2/0.09**2)*r**2/m
 class Stacking():
-    def __init__(self, event_list, event_priors=None, labels=None,spectral=False):
+    
+    def __init__(self, event_list, em_event_list = None, event_priors=None, labels=None,spectral=False):
         '''
         This class takes as input a list of posterior-samples files for
         various events. Optionally, prior samples files can also be
         supplied and allows us to compute the various quantities related
         to each of the posterior samples.
         '''
+        
         if type(event_list) != list:  # event_list must be a list
             print('All arguments for Stacking must be a list of file-names')
             sys.exit(0)
@@ -757,7 +1091,9 @@ class Stacking():
                 self.labels.append(label)
             else:
                 print('Could not file {}. Skipping event'.format(event))
-
+        
+        
+            
         self.event_list = sanitized_event_list
 
         if event_priors:
@@ -783,6 +1119,12 @@ class Stacking():
         for prior_file, event_file in zip(self.event_priors, self.event_list):
             modsel.append(Model_selection(posteriorFile=event_file,
                                      priorFile=prior_file,spectral=self.spectral))
+        if em_event_list is not None:
+            for event_file in em_event_list:
+                if('J0740' in event_file):
+                    modsel.append(Model_selection_em(event_file, inverse_mr_prior = inverse_prior_func_gaussian_mass , spectral = self.spectral ))
+                    continue
+                modsel.append(Model_selection_em(event_file,inverse_mr_prior = inverse_prior_func , spectral = self.spectral ))
         self.modsel=modsel
         self.Nevents=len(modsel)
     def stack_events(self, EoS1, EoS2, trials=0, gridN=1000, save=None, 

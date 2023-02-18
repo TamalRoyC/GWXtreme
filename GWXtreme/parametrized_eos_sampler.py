@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 
 
 class mcmc_sampler():
-    def __init__(self, posterior_files, prior_bounds, outfile, gridN=100, nwalkers=100,
+    def __init__(self, posterior_files, prior_bounds, outfile, posterior_files_em=None, gridN=100, nwalkers=100,
 		 Nsamples=10000, ndim=4, spectral=True,npool=1):
         '''
         Initiates Parametric EoS mcmc Sampler Class
@@ -75,7 +75,10 @@ class mcmc_sampler():
         self.nsamples=Nsamples
         self.ndim=ndim
         self.spectral=spectral
-        self.eosmodel=Stacking(posterior_files,spectral=spectral)
+        if (posterior_files_em is not None):
+            self.eosmodel=Stacking(posterior_files,em_event_list= posterior_files_em,spectral=spectral)
+        else:
+            self.eosmodel=Stacking(posterior_files,spectral=spectral)
         self.npool=npool
         self.gridN=gridN
         
@@ -228,16 +231,17 @@ class mcmc_sampler():
                         
         if(p_vs_rho['plot']):
             logp=[]
-            rho=np.logspace(17.25,18.25,1000)
+            rho=np.logspace(17.,18.2,1000)
             
-
-            for s in samples:
+            N=len(samples)
+            for i,s in enumerate(samples):
                 params=(s[0], s[1], s[2], s[3])
                 
                 p=eos_p_of_rho(rho,self.eos(params))
                 
                 logp.append(p)
-    
+                print(i,N)
+            
             logp=np.array(logp)
             logp_CIup=np.array([np.quantile(logp[:,i],0.95) for i in range(len(rho))])
             logp_CIlow=np.array([np.quantile(logp[:,i],0.05) for i in range(len(rho))])

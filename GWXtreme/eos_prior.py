@@ -23,7 +23,7 @@ import h5py
 import lalsimulation
 import lal
 
-largest_ns_mass = 1.97
+largest_ns_mass = 2.08
 
 def eos_p_of_rho(rho,eos):
     '''
