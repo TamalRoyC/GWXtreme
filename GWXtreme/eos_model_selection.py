@@ -257,7 +257,33 @@ class Model_selection:
         kdedim        :: dimensionality of the KDE
                          
         '''
-        self.data = np.recfromtxt(posteriorFile, names=True)
+        if(posteriorFile[-2:]=='h5'):
+            f=h5py.File(posteriorFile,'r')
+            data=np.array(f['TaylorF2-LS']['posterior_samples'])
+            f.close()
+            drop_frac=1
+            size=int(len(np.array(data['mass_1_source']))*drop_frac)
+            Ind=np.arange(size).astype(np.int64)
+            
+            if kdedim == 2:
+                m1,m2,q,mc,LambdaT=np.array(data['mass_1_source'])[Ind],np.array(data['mass_2_source'])[Ind],np.array(data['mass_ratio'])[Ind],np.array(data['chirp_mass_source'])[Ind],np.array(data['lambda_tilde'])[Ind]
+                self.data={'m1_source':m1,'m2_source':m2,'q':q,'mc_source':mc,'lambdat':LambdaT}
+            else:
+                m1,m2,q,mc,lambda_1,lambda_2=np.array(data['mass_1_source'])[Ind],np.array(data['mass_2_source'])[Ind],np.array(data['mass_ratio'])[Ind],np.array(data['chirp_mass_source'])[Ind],np.array(data['lambda1'])[Ind],np.array(data['lambda2'])[Ind]
+                self.data={'m1_source':m1,'m2_source':m2,'q':q,'mc_source':mc,'lambda1':lambda_1, 'lambda2':lambda_2}
+        else:
+            try:
+                np.recfromtxt(posteriorFile, names=True)['m2_source']
+                self.data = np.recfromtxt(posteriorFile, names=True)
+            except ValueError:
+                
+                drop_frac=1
+                data = np.recfromtxt(posteriorFile, names=True)
+                size=int(len(np.array(data['mass_1_source']))*drop_frac)
+                Ind=np.random.choice(size,size=4000).astype(np.int64)
+                m1,m2,q,mc,lambda_1,lambda_2=np.array(data['mass_1_source'])[Ind],np.array(data['mass_2_source'])[Ind],np.array(data['mass_ratio'])[Ind],np.array(data['chirp_mass_source'])[Ind],np.array(data['lambda_1'])[Ind],np.array(data['lambda_2'])[Ind]
+                self.data={'m1_source':m1,'m2_source':m2,'q':q,'mc_source':mc,'lambda1':lambda_1, 'lambda2':lambda_2}
+            
         if priorFile:
             self.prior = np.recfromtxt(priorFile, names=True)
             self.minMass = np.min(self.prior['m2_source'])
@@ -266,36 +292,31 @@ class Model_selection:
             self.q_min = np.min(self.prior['q'])
         else:
             self.prior = None
-            self.minMass = np.min(self.data['m2_source'][0::int(len(self.data['q'])/Ns)])  # min posterior mass
-            self.maxMass = np.max(self.data['m1_source'][0::int(len(self.data['q'])/Ns)])  # max posterior mass
-            self.q_max = np.max(self.data['q'][0::int(len(self.data['q'])/Ns)])
-            self.q_min = np.min(self.data['q'][0::int(len(self.data['q'])/Ns)])
-        
-        self.min_mass=0.8
+            self.minMass = np.min(self.data['m2_source'][0::max(1,int(len(self.data['q'])/Ns))])  # min posterior mass
+            self.maxMass = np.max(self.data['m1_source'][0::max(1,int(len(self.data['q'])/Ns))])  # max posterior mass
+            self.q_max = np.max(self.data['q'][0::min(1,max(1,int(len(self.data['q'])/Ns)))])
+            self.q_min = np.min(self.data['q'][0::max(1,int(len(self.data['q'])/Ns))])
         self.m_min=0.8
-        
         # store useful parameters
         self.mc_mean = np.mean(self.data['mc_source'])
         self.kdedim=kdedim
         
-        # whiten data
-        self.var_q = np.std(self.data['q'][0::int(len(self.data['q'])/Ns)])
+        # whiten mass data (var lambda's updated later)
+        self.var_q = np.std(self.data['q'][0::max(1,int(len(self.data['q'])/Ns))])
         self.q_max /= self.var_q
         self.q_min /= self.var_q
         self.yhigh = 1.0/self.var_q  # For reflection boundary condition
+        self.var_Lambda1 =1.0
+        self.var_Lambda2 =1.0
+        self.var_LambdaT =1.0
         
         if kdedim==2:
-            self.var_LambdaT = np.std(self.data['lambdat'][0::int(len(self.data['q'])/Ns)])
-            
-            self.var_Lambda1 = 1.0
-            self.var_Lambda2 = 1.0
+            self.var_LambdaT = np.std(self.data['lambdat'][0::max(1,int(len(self.data['q'])/Ns))])
 
-        
-
-            self.margPostData = np.vstack((self.data['lambdat'][0::int(len(self.data['q'])/Ns)]/self.var_LambdaT,
-                                       self.data['q'][0::int(len(self.data['q'])/Ns)]/self.var_q)).T
+            self.margPostData = np.vstack((self.data['lambdat'][0::max(1,int(len(self.data['q'])/Ns))]/self.var_LambdaT,
+                                       self.data['q'][0::max(1,int(len(self.data['q'])/Ns))]/self.var_q)).T
+            #Calculate kde bandwidth
             self.bw = len(self.margPostData)**(-1/6.)  # Scott's bandwidth factor
-
             # Compute the KDE for the marginalized posterior distribution #
             self.kde = Bounded_2d_kde(self.margPostData,
                                   xlow=0.0,
@@ -306,9 +327,9 @@ class Model_selection:
             self.var_Lambda1 = np.std(self.data['lambda1'])
             self.var_Lambda2 = np.std(self.data['lambda2'])
             self.margPostData = np.vstack((self.data['lambda1']/self.var_Lambda1,
-                                       self.data['q']/self.var_q,self.data['lambda2']/self.var_Lambda2)).T
+self.data['q']/self.var_q,self.data['lambda2']/self.var_Lambda2)).T
+            #Calculate kde bandwidth
             self.bw = len(self.margPostData)**(-1/6.)  # Scott's bandwidth factor
-
             # Compute the KDE for the marginalized posterior distribution #
             self.var_LambdaT=1.0
             self.kde = Bounded_3d_kde(self.margPostData,
@@ -319,7 +340,7 @@ class Model_selection:
             raise ValueError("kdedim can only be either 2 or 3")
         # Attribute that distinguishes parametrization method
         self.spectral = spectral
-
+        self.minMass = self.m_min
     def getEoSInterp(self, eosname=None, m_min=1.0, N=100):
         '''
         This method accepts one of the NS native equations of state
@@ -354,11 +375,14 @@ class Model_selection:
         eos = lalsim.SimNeutronStarEOSByName(eosname)
         fam = lalsim.CreateSimNeutronStarFamily(eos)
         max_mass = lalsim.SimNeutronStarMaximumMass(fam)/lal.MSUN_SI
-
+        #min_mass = lalsim.SimNeutronStarFamMinimumMass(fam)/lal.MSUN_SI
+        
         # This is necessary so that interpolant is computed over the full range
         # Keeping number upto 3 decimal places
         # Not rounding up, since that will lead to RuntimeError
         max_mass = int(max_mass*1000)/1000
+        #min_mass = int(min_mass*1000+1)/1000
+        #m_min = min_mass
         masses = np.linspace(m_min, max_mass, N)
         masses = masses[masses <= max_mass]
         Lambdas = []
@@ -458,9 +482,10 @@ class Model_selection:
         # This is necessary so that interpolant is computed over the full range
         # Keeping number upto 3 decimal places
         # Not rounding up, since that will lead to RuntimeError
-
+        min_mass=m_min
         max_mass = int(max_mass*1000)/1000
-        masses = np.linspace(m_min, max_mass, N)
+        min_mass = int(min_mass*1000+1)/1000
+        masses = np.linspace(max(m_min,min_mass), max_mass, N)
         masses = masses[masses <= max_mass]
         Lambdas = []
         gravMass = []
@@ -477,7 +502,7 @@ class Model_selection:
         gravMass = np.array(gravMass)
         s = interp1d(gravMass, Lambdas)
         
-        return([s, m_min, max_mass])
+        return([s, m_min, max_mass,max(m_min,min_mass)])
 
     def computeEvidenceRatio(self, EoS1, EoS2, gridN=1000, save=None, 
                              trials=0, verbose=False):
@@ -550,16 +575,14 @@ class Model_selection:
                                           s1, max_mass_eos1, self.kde,
                                           gridN=gridN,
                                           var_LambdaT=self.var_LambdaT,
-                                          var_q=self.var_q,
-                                          minMass=self.minMass,kdedim=self.kdedim,var_Lambda1=self.var_Lambda1,var_Lambda2=self.var_Lambda2)
+                                          var_q=self.var_q, minMass=self.minMass,kdedim=self.kdedim,var_Lambda1=self.var_Lambda1,var_Lambda2=self.var_Lambda2)
 
         [lambdat_eos2,
          q_eos2, support2D2] = integrator(self.q_min, self.q_max, self.mc_mean,
                                           s2, max_mass_eos2, self.kde,
                                           gridN=gridN,
                                           var_LambdaT=self.var_LambdaT,
-                                          var_q=self.var_q,
-                                          minMass=self.minMass,kdedim=self.kdedim,var_Lambda1=self.var_Lambda1,var_Lambda2=self.var_Lambda2)
+                                          var_q=self.var_q, minMass=self.minMass,kdedim=self.kdedim,var_Lambda1=self.var_Lambda1,var_Lambda2=self.var_Lambda2)
 
         # iterate to determine uncertainty via re-drawing from
         # smoothed distribution
@@ -595,7 +618,7 @@ class Model_selection:
                            "q_max": self.q_max, "mc_mean": self.mc_mean, "s1": s1,
                            "s2": s2, "max_mass_eos1": max_mass_eos1,
                            "max_mass_eos2": max_mass_eos2, "gridN": gridN,
-                           "var_LambdaT": self.var_LambdaT, "var_q": self.var_q,
+                           "var_LambdaT": self.var_LambdaT,"var_Lambda1": self.var_Lambda1, "var_Lambda2": self.var_Lambda2, "var_q": self.var_q,
                            "minMass": self.minMass, 'trials': this_trials,'kdedim':self.kdedim}
             futures.append(get_trials.remote(future_dict))
             if verbose:
@@ -633,7 +656,7 @@ class Model_selection:
 
         # generate interpolator for eos
         [s, _,
-         max_mass_eos] = self.getEoSInterp_parametrized(params, N=100, m_min=self.m_min)
+         max_mass_eos,min_mass] = self.getEoSInterp_parametrized(params, N=100, m_min=self.m_min)
 
         # compute support
         [lambdat_eos,
@@ -641,8 +664,7 @@ class Model_selection:
                                         s, max_mass_eos, self.kde,
                                         gridN=gridN,
                                         var_LambdaT=self.var_LambdaT,
-                                        var_q=self.var_q,
-                                        minMass=self.min_mass,kdedim=self.kdedim,var_Lambda1=self.var_Lambda1,var_Lambda2=self.var_Lambda2)
+                                        var_q=self.var_q, minMass=self.minMass,kdedim=self.kdedim,var_Lambda1=self.var_Lambda1,var_Lambda2=self.var_Lambda2)
 
         return(support2D)
 

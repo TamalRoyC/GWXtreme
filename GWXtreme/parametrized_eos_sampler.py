@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 
 class mcmc_sampler():
     def __init__(self, posterior_files, prior_bounds, outfile, gridN=100, nwalkers=100,
-		 Nsamples=10000, ndim=4, spectral=True,npool=1):
+		 Nsamples=10000, ndim=4, spectral=True,npool=1,kdedim=2):
         '''
         Initiates Parametric EoS mcmc Sampler Class
         that also stacks over multiple events,from the
@@ -75,7 +75,7 @@ class mcmc_sampler():
         self.nsamples=Nsamples
         self.ndim=ndim
         self.spectral=spectral
-        self.eosmodel=Stacking(posterior_files,spectral=spectral)
+        self.eosmodel=Stacking(posterior_files,spectral=spectral,kdedim = kdedim)
         self.npool=npool
         self.gridN=gridN
         
@@ -124,6 +124,15 @@ class mcmc_sampler():
             params={k:np.array([g[i]]) for i,k in enumerate(self.keys)}
     
             if(is_valid_eos(params,self.priorbounds,spectral=self.spectral)):
+                try:
+                    post=self.log_post(g)
+                except ValueError as e:
+                    print(e)
+                    print(g,n)
+                    continue
+                if(post==np.nan_to_num(-np.inf)):
+                    continue
+
                 p0.append(g)
                 n+=1
             if(n>=self.nwalkers):
@@ -169,6 +178,79 @@ class mcmc_sampler():
         
 
         
+    def parse_samples(self, burn_in_frac=0.5, thinning=None):
+        '''
+        This methods parses the MCMC samples of
+        EoS hyper-parameters and for use by the plotting 
+        functions.
+        see https://emcee.readthedocs.io/en/stable/tutorials/autocorr/
+        for some documentation on choosing thinning and burn-in
+        
+        burn_in_frac  :: fraction of samples to discard from each chain
+                         for MCMC burn in. Default corresponds to discarding 
+                         half the samples in each chain.
+        
+        thinning      :: Number of samples to skip in each chain post
+                         burn in. "None" implements the default value 
+                         which is either (length of chain)/50 or half of
+                         the maximum integrated autocorrelation time. The 
+                         former is used in case autocorrelation analysis 
+                         throws non-convergence error. For no thinning 
+                         set thinning=1
+        
+        '''
+        
+        Ns=self.samples.shape
+        burn_in=int(Ns[0]*burn_in_frac)
+        samples=[]
+        
+        if thinning is None:
+            thinning=int(Ns[0]/50.)
+
+            try:
+                thinning=int(max(mc.autocorr.integrated_time(self.samples))/2.)
+            except mc.autocorr.AutocorrError as e:
+                print(e)
+        
+        for i in range(burn_in, Ns[0], thinning):
+            for j in range(Ns[1]):
+                samples.append(self.samples[i,j,:])
+
+        return np.array(samples)
+    
+    def load_samples(self, filename):
+        '''
+        If the plotting function is called in post-
+        processing i.e. as part of a different script 
+        than the one that ran the sampling, then this 
+        function needs be called to load the EoS hyper-parameter
+        samples. In addition, if one wishes to make their own
+        plots using the parsed samples, they can do so by first
+        calling this method and then extracting the parsed samples
+        using parse_samples() method of this class.
+        
+        filename :: h5py file containing MCMC samples of 
+                    EoS hyper-parameters
+                    
+        Example:
+        
+        >>> sampler_spectral=mcmc_sampler([],  
+        {'gamma1':{'params':{"min":0.2,"max":2.00}},
+        'gamma2':{'params':{"min":-1.6,"max":1.7}},
+        'gamma3':{'params':{"min":-0.6,"max":0.6}},
+        'gamma4':{'params':{"min":-0.02,"max":0.02}}},
+        out, nwalkers=100, Nsamples=10000, ndim=4,
+        spectral=True,npool=16)
+        >>> sampler_spectral.load_samples('file/containing/EoS/hyperparameter/samples')
+        >>> figures = sampler_spectral.plot(p_vs_rho={'plot':True,'true_eos': None}) #for plotting using this classes plot() function. This step can be skipped if one wishes to manually the extracted samples.
+        >>> samples = sampler_spectral.parse_samples() # to extract parsed samples for manual plotting if desired
+        
+        '''
+        
+        with h5py.File(filename,'r') as f:
+            self.samples = np.array(f['chains'])
+            self.logp = np.array(f['logp'])
+        
     def plot(self,cornerplot={'plot':False,'true vals':None},p_vs_rho={'plot':False,'true_eos':None}):
         '''
         This method plots the posterior of the spectral
@@ -189,20 +271,8 @@ class mcmc_sampler():
                       (default is False)
         '''
         fig={'corner':None,'p_vs_rho':None}
-        Ns=self.samples.shape
-        burn_in=int(Ns[0]/2.)
-        samples=[]
-        thinning=int(Ns[0]/50.)
         
-        try:
-            thinning=int(max(mc.autocorr.integrated_time(self.samples))/2.)
-        except mc.autocorr.AutocorrError as e:
-            print(e)
-        for i in range(burn_in,Ns[0],thinning):
-            for j in range(Ns[1]):
-                samples.append(self.samples[i,j,:])
-
-        samples=np.array(samples)
+        samples=self.parse_samples()
         
         if cornerplot['plot']:
                                                                      
@@ -228,8 +298,8 @@ class mcmc_sampler():
                         
         if(p_vs_rho['plot']):
             logp=[]
-            rho=np.logspace(17.25,18.25,1000)
-            
+            rho=np.logspace(17.1,18.25,1000)
+            self.rho = rho 
 
             for s in samples:
                 params=(s[0], s[1], s[2], s[3])
@@ -242,10 +312,9 @@ class mcmc_sampler():
             logp_CIup=np.array([np.quantile(logp[:,i],0.95) for i in range(len(rho))])
             logp_CIlow=np.array([np.quantile(logp[:,i],0.05) for i in range(len(rho))])
             logp_med=np.array([np.quantile(logp[:,i],0.5) for i in range(len(rho))])
+            self.p = (logp_CIup,logp_CIlow,logp_med)
             fig_eos,ax_eos=plt.subplots(1,figsize=(12,12))
-            ax_eos.errorbar(np.log10(rho),logp_med,color='cyan',
-	 		yerr=[logp_med-logp_CIlow,logp_CIup-logp_med],elinewidth=2.0,
-			capsize=1.5,ecolor='cyan',fmt='')
+            ax_eos.fill_between(np.log10(rho),logp_CIlow,logp_CIup,color='cyan',alpha=.5,label='GWXtreme',zorder=1.)
             ax_eos.set_xlabel(r'$\log10{\frac{\rho}{g cm^-3}}$',fontsize=20)
             ax_eos.set_ylabel(r'$log10(\frac{p}{dyne cm^{-2}})$',fontsize=20)
             if(p_vs_rho['true_eos'] is not None):
