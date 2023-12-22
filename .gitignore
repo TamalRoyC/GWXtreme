@@ -4,5 +4,3 @@ GWXtreme.egg-info
 build/
 dist/
 .DS_Store
-.ipynb_checkpoints
-__pycache__

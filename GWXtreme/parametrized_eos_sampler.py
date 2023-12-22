@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 
 class mcmc_sampler():
     def __init__(self, posterior_files, prior_bounds, outfile, gridN=100, nwalkers=100,
-		 Nsamples=10000, ndim=4, spectral=True,npool=1,kdedim=2):
+		 Nsamples=10000, ndim=4, spectral=True,npool=1,Ns=4000):
         '''
         Initiates Parametric EoS mcmc Sampler Class
         that also stacks over multiple events,from the
@@ -66,6 +66,9 @@ class mcmc_sampler():
         gridN     ::    Number of grid points to evaluate evidence integral
                         over, while evaluationg log_prob
                         
+        Ns        ::    Number of samples to which the single event q and 
+                        lambda_tilde posteriors are downsampled
+                        
         '''
         
         self.posteriorfiles=posterior_files
@@ -75,7 +78,7 @@ class mcmc_sampler():
         self.nsamples=Nsamples
         self.ndim=ndim
         self.spectral=spectral
-        self.eosmodel=Stacking(posterior_files,spectral=spectral,kdedim = kdedim)
+        self.eosmodel=Stacking(posterior_files,spectral=spectral,Ns=Ns)
         self.npool=npool
         self.gridN=gridN
         
@@ -175,8 +178,6 @@ class mcmc_sampler():
         f.create_dataset('chains',data=np.array(self.samples))
         f.create_dataset('logp',data=np.array(self.logp))
         f.close()
-        
-
         
     def parse_samples(self, burn_in_frac=0.5, thinning=None):
         '''
@@ -299,7 +300,7 @@ class mcmc_sampler():
         if(p_vs_rho['plot']):
             logp=[]
             rho=np.logspace(17.1,18.25,1000)
-            self.rho = rho 
+            
 
             for s in samples:
                 params=(s[0], s[1], s[2], s[3])
@@ -312,7 +313,6 @@ class mcmc_sampler():
             logp_CIup=np.array([np.quantile(logp[:,i],0.95) for i in range(len(rho))])
             logp_CIlow=np.array([np.quantile(logp[:,i],0.05) for i in range(len(rho))])
             logp_med=np.array([np.quantile(logp[:,i],0.5) for i in range(len(rho))])
-            self.p = (logp_CIup,logp_CIlow,logp_med)
             fig_eos,ax_eos=plt.subplots(1,figsize=(12,12))
             ax_eos.fill_between(np.log10(rho),logp_CIlow,logp_CIup,color='cyan',alpha=.5,label='GWXtreme',zorder=1.)
             ax_eos.set_xlabel(r'$\log10{\frac{\rho}{g cm^-3}}$',fontsize=20)
