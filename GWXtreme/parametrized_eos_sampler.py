@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 
 class mcmc_sampler():
     def __init__(self, posterior_files, prior_bounds, outfile, gridN=100, nwalkers=100,
-		 Nsamples=10000, ndim=4, spectral=True,npool=1,Ns=4000):
+		 Nsamples=10000, ndim=4, spectral=True, npool=1, Ns=4000, kdedim=2,wf='posterior_samples'):
         '''
         Initiates Parametric EoS mcmc Sampler Class
         that also stacks over multiple events,from the
@@ -78,7 +78,7 @@ class mcmc_sampler():
         self.nsamples=Nsamples
         self.ndim=ndim
         self.spectral=spectral
-        self.eosmodel=Stacking(posterior_files,spectral=spectral,Ns=Ns)
+        self.eosmodel=Stacking(posterior_files,spectral=spectral,Ns=Ns,kdedim=kdedim,wf=wf)
         self.npool=npool
         self.gridN=gridN
         

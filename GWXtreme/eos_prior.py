@@ -439,7 +439,3 @@ def is_valid_eos(
                     
                     valid[i] = False
     return valid
-
-
-
-
