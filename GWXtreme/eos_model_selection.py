@@ -234,7 +234,7 @@ def get_trials(fd):
 
 
 class Model_selection:
-    def __init__(self, posteriorFile, priorFile=None, spectral=False,Ns=None,kdedim=2,wf='TaylorF2-LS'):
+    def __init__(self, posteriorFile, priorFile=None, spectral=False,Ns=None,kdedim=2):
         '''
         Initiates the Bayes factor calculator with the posterior
         samples from the uniform LambdaT, dLambdaT parameter
@@ -287,12 +287,12 @@ class Model_selection:
                                         np.array(_data['lambdat']))
                 lambda_1,lambda_2 = None,None
             else:
-                (m1,m2,q,mc,lambda_1,lambda_2)=(np.array(_data['m1_source']),
-                                        np.array(_data['m2_source']),
-                                        np.array(_data['q']),
-                                        np.array(_data['mc_source']),
-                                        np.array(_data['lambda1']),
-                                        np.array(_data['lambda2']))
+                (m1,m2,q,mc,lambda_1,lambda_2)=(np.array(_data['mass_1_source']),
+                                        np.array(_data['mass_2_source']),
+                                        np.array(_data['mass_ratio']),
+                                        np.array(_data['chirp_mass_source']),
+                                        np.array(_data['lambda_1']),
+                                        np.array(_data['lambda_2']))
                 LambdaT=None
         data={'m1_source':m1,'m2_source':m2,'q':q,'mc_source':mc,'lambdat':LambdaT,'lambda1':lambda_1, 'lambda2':lambda_2}
         data = {k:v for k, v in data.items() if v is not None}
@@ -818,7 +818,7 @@ self.data['q']/self.var_q,self.data['lambda2']/self.var_Lambda2)).T
 
 
 class Stacking():
-    def __init__(self, event_list, event_priors=None, labels=None,spectral=False,Ns=None,kdedim=2,wf='posterior'):
+    def __init__(self, event_list, event_priors=None, labels=None,spectral=False,Ns=None,kdedim=2):
         '''
         This class takes as input a list of posterior-samples files for
         various events. Optionally, prior samples files can also be
@@ -876,7 +876,7 @@ class Stacking():
         modsel=[]
         for prior_file, event_file, this_kdedim in zip(self.event_priors, self.event_list,self.kdedim):
             modsel.append(Model_selection(posteriorFile=event_file,
-                                     priorFile=prior_file,spectral=self.spectral,Ns=Ns,kdedim=this_kdedim,wf=wf))
+                                     priorFile=prior_file,spectral=self.spectral,Ns=Ns,kdedim=this_kdedim))
         self.modsel=modsel
         self.Nevents=len(modsel)
     def stack_events(self, EoS1, EoS2, trials=0, gridN=1000, save=None, 
