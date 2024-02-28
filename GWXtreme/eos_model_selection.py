@@ -211,10 +211,13 @@ def get_trials(fd):
     sup_array = np.array(support2D1_list)/np.array(support2D2_list)
     return sup_array
 
-
+def inverse_prior_func(r,m):
+            return r**2/m
+def inverse_prior_func_gaussian_mass(r,m):
+            return 0.09**2*np.exp(0.5*(m-2.08)**2/0.09**2)*r**2/m
     
 class Model_selection_em:
-    def __init__(self, posteriorFile, priorFile=None, spectral=False,Ns=4000,mr=False,inverse_mr_prior=lambda x,y: 1.0,fixed=False):
+    def __init__(self, posteriorFile, priorFile=None, spectral=False,Ns=4000,mr=False,inverse_mr_prior='normal',fixed=False):
         '''
         Initiates the Bayes factor calculator with the posterior
         samples from the uniform LambdaT, dLambdaT parameter
@@ -237,19 +240,29 @@ class Model_selection_em:
                          from PE will make it very slow)
                          
         '''
-        self.data = np.recfromtxt(posteriorFile, names=True)
-        self.inverse_prior = inverse_mr_prior
+        
+        _data = np.recfromtxt(posteriorFile, names=True)
+        (mass,radius) = (np.array(_data['mass']),
+                                np.array(_data['radius']))
+        data={'mass':mass,'radius':radius}
+        Ns_orig = len(mass)
+        if(Ns is None or Ns>Ns_orig):
+            Ns = Ns_orig #By default we use all the posterior samples without thinning
+        self.data = {k:data[k][0::int(Ns_orig/Ns)] for k in list(data.keys())}
+        
+        if inverse_mr_prior == 'normal':
+            self.inverse_prior = inverse_prior_func
+        else:
+            self.inverse_prior = inverse_prior_func_gaussian_mass
+
         self.minMass = 0.8
         self.maxMass = 3.0
         self.m_min = self.minMass
-        self.var_r = np.std(self.data['radius'][0::int(len(self.data['radius'])/Ns)])
-        self.var_m = np.std(self.data['mass'][0::int(len(self.data['mass'])/Ns)])
+        self.var_r = np.std(self.data['radius'])
+        self.var_m = np.std(self.data['mass'])
 
-        
-        
-
-        self.margPostData = np.vstack((self.data['radius'][0::int(len(self.data['radius'])/Ns)]/self.var_r,
-                                       self.data['mass'][0::int(len(self.data['mass'])/Ns)]/self.var_m)).T
+        self.margPostData = np.vstack((self.data['radius']/self.var_r,
+                                       self.data['mass']/self.var_m)).T
         self.bw = len(self.margPostData)**(-1/6.)  # Scott's bandwidth factor
 
         # Compute the KDE for the marginalized posterior distribution #
@@ -257,7 +270,7 @@ class Model_selection_em:
                                   xlow=None,
                                   xhigh=None,
                                   ylow=None,
-                                  yhigh= None, weights = self.inverse_prior(self.data['radius'][0::int(len(self.data['radius'])/Ns)],self.data['mass'][0::int(len(self.data['mass'])/Ns)]))
+                                  yhigh= None, weights = self.inverse_prior(self.data['radius'],self.data['mass']))
 
         # Attribute that distinguishes parametrization method
         self.spectral = spectral
@@ -556,19 +569,14 @@ class Model_selection:
             f=h5py.File(posteriorFile,'r')
             _data=np.array(f['TaylorF2-LS']['posterior_samples'])
             f.close()
-            drop_frac=1 #what is drop_frac, why use it?
-            size=int(len(np.array(_data['mass_1_source']))*drop_frac)
-            Ind=np.arange(size).astype(np.int64)
+            size=int(len(np.array(_data['mass_1_source'])))
             
-            (m1,m2,q,mc,LambdaT)=np.array(_data['mass_1_source'])[Ind],
-                                        np.array(_data['mass_2_source'])[Ind],
-                                        np.array(_data['mass_ratio'])[Ind],
-                                        np.array(_data['chirp_mass_source'])[Ind],
-                                        np.array(_data['lambda_tilde'])[Ind]
-            #self.data={'m1_source':m1,'m2_source':m2,'q':q,'mc_source':mc,'lambdat':LambdaT}
+            (m1,m2,q,mc,LambdaT)=(np.array(_data['mass_1_source']),
+                                        np.array(_data['mass_2_source']),
+                                        np.array(_data['mass_ratio']),
+                                        np.array(_data['chirp_mass_source']),
+                                        np.array(_data['lambda_tilde']))
         else:
-            #self.data = np.recfromtxt(posteriorFile, names=True)
-       # print(len(self.data['m1_source']))
             _data = np.recfromtxt(posteriorFile, names=True)
             (m1,m2,q,mc,LambdaT)=(np.array(_data['m1_source']),
                                         np.array(_data['m2_source']),
@@ -591,18 +599,18 @@ class Model_selection:
             self.q_min = np.min(self.prior['q'])
         else:
             self.prior = None
-            self.minMass = np.min(self.data['m2_source']  # min posterior mass
-            self.maxMass = np.max(self.data['m1_source']  # max posterior mass
-            self.q_max = np.max(self.data['q']
-            self.q_min = np.min(self.data['q']
-        self.min_mass=0.8
+            self.minMass = np.min(self.data['m2_source'])  # min posterior mass
+            self.maxMass = np.max(self.data['m1_source'])  # max posterior mass
+            self.q_max = np.max(self.data['q'])
+            self.q_min = np.min(self.data['q'])
+        #self.min_mass=0.8
         self.m_min=0.8
         # store useful parameters
         self.mc_mean = np.mean(self.data['mc_source'])
 
         # whiten data
-        self.var_LambdaT = np.std(self.data['lambdat']
-        self.var_q = np.std(self.data['q']
+        self.var_LambdaT = np.std(self.data['lambdat'])
+        self.var_q = np.std(self.data['q'])
 
         self.q_max /= self.var_q
         self.q_min /= self.var_q
@@ -1076,13 +1084,10 @@ class Model_selection:
             pl.title('EoS = {}'.format(text))
         pl.savefig(filename, bbox_inches='tight')
 
-def inverse_prior_func(r,m):
-            return r**2/m
-def inverse_prior_func_gaussian_mass(r,m):
-            return 0.09**2*np.exp(0.5*(m-2.08)**2/0.09**2)*r**2/m
+
 class Stacking():
     
-    def __init__(self, event_list, em_event_list = None, event_priors=None, labels=None,spectral=False,Ns=None):
+    def __init__(self, event_list, em_event_list = None, event_priors=None, labels=None, inverse_prior='normal', spectral=False,Ns=None):
         '''
         This class takes as input a list of posterior-samples files for
         various events. Optionally, prior samples files can also be
@@ -1090,6 +1095,11 @@ class Stacking():
         to each of the posterior samples. Ns is the Number of samples to which the single event q and 
         lambda_tilde posteriors are downsampled and is only required for speeding up the parametric eos
         analysis
+        
+        inverse_prior : Mass and radius prior function, needed if em events provided.
+                        'normal' is r**2/m
+                        'gaussian' is 0.09**2*np.exp(0.5*(m-2.08)**2/0.09**2)*r**2/m
+
         '''
         
         if type(event_list) != list:  # event_list must be a list
@@ -1144,11 +1154,7 @@ class Stacking():
             modsel.append(Model_selection(posteriorFile=event_file,
                                      priorFile=prior_file,spectral=self.spectral,Ns=Ns))
         if em_event_list is not None:
-            for event_file in em_event_list:
-                if('J0740' in event_file): ## what is this event?
-                    modsel.append(Model_selection_em(event_file, inverse_mr_prior = inverse_prior_func_gaussian_mass , spectral = self.spectral ))
-                    continue
-                modsel.append(Model_selection_em(event_file,inverse_mr_prior = inverse_prior_func , spectral = self.spectral ))
+            modsel.append(Model_selection_em(event_file, inverse_mr_prior = inverse_prior , spectral = self.spectral ))
                             
         self.modsel=modsel
         self.Nevents=len(modsel)
