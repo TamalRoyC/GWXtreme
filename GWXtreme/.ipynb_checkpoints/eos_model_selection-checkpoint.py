@@ -217,7 +217,7 @@ def inverse_prior_func_gaussian_mass(r,m):
             return 0.09**2*np.exp(0.5*(m-2.08)**2/0.09**2)*r**2/m
     
 class Model_selection_em:
-    def __init__(self, posteriorFile, priorFile=None, spectral=False,Ns=4000,mr=False,inverse_mr_prior='normal',fixed=False):
+    def __init__(self, posteriorFile, priorFile=None, spectral=False,Ns=4000,mr=False,inverse_mr_prior=None,fixed=False):
         '''
         Initiates the Bayes factor calculator with the posterior
         samples from the uniform LambdaT, dLambdaT parameter
@@ -238,6 +238,9 @@ class Model_selection_em:
                          
         Ns            :: Number of Samples to be used for KDE. (Using all samples 
                          from PE will make it very slow)
+        
+        inverse_mr_prior :: 'regular' : r**2/2m
+                            'gaussian' : 0.09**2*np.exp(0.5*(m-2.08)**2/0.09**2)*r**2/m
                          
         '''
         
@@ -250,7 +253,7 @@ class Model_selection_em:
             Ns = Ns_orig #By default we use all the posterior samples without thinning
         self.data = {k:data[k][0::int(Ns_orig/Ns)] for k in list(data.keys())}
         
-        if inverse_mr_prior == 'normal':
+        if inverse_mr_prior == 'regular':
             self.inverse_prior = inverse_prior_func
         else:
             self.inverse_prior = inverse_prior_func_gaussian_mass
@@ -1087,7 +1090,8 @@ class Model_selection:
 
 class Stacking():
     
-    def __init__(self, event_list, em_event_list = None, event_priors=None, labels=None, inverse_prior='normal', spectral=False,Ns=None):
+    def __init__(self, event_list = None, em_event_list = None, event_priors=None, labels=None, inverse_priors=None
+                 , spectral=False,Ns=None):
         '''
         This class takes as input a list of posterior-samples files for
         various events. Optionally, prior samples files can also be
@@ -1097,7 +1101,7 @@ class Stacking():
         analysis
         
         inverse_prior : Mass and radius prior function, needed if em events provided.
-                        'normal' is r**2/m
+                        'regular' is r**2/m
                         'gaussian' is 0.09**2*np.exp(0.5*(m-2.08)**2/0.09**2)*r**2/m
 
         '''
@@ -1108,6 +1112,15 @@ class Stacking():
 
         if event_priors:
             if type(event_priors) != list:
+                print('All arguments for Stacking must be lists of file-names')
+                sys.exit(0)
+                
+        if type(em_event_list) != list:  # event_list must be a list
+            print('All arguments for Stacking must be a list of file-names')
+            sys.exit(0)
+
+        if inverse_priors:
+            if type(inverse_priors) != list:
                 print('All arguments for Stacking must be lists of file-names')
                 sys.exit(0)
 
@@ -1125,7 +1138,6 @@ class Stacking():
                 self.labels.append(label)
             else:
                 print('Could not file {}. Skipping event'.format(event))
-        
         
             
         self.event_list = sanitized_event_list
@@ -1148,13 +1160,18 @@ class Stacking():
         if len(self.event_priors) != len(self.event_list):
             print('Number of prior and posterior files should be same')
             sys.exit(0)
+        if len(self.inverse_priors) != len(self.em_event_list):
+            print('Number of prior and posterior files should be same')
+            sys.exit(0)
         self.spectral=spectral
         modsel=[]
-        for prior_file, event_file in zip(self.event_priors, self.event_list):
-            modsel.append(Model_selection(posteriorFile=event_file,
-                                     priorFile=prior_file,spectral=self.spectral,Ns=Ns))
+        if event_list is not None:
+            for prior_file, event_file in zip(self.event_priors, self.event_list):
+                modsel.append(Model_selection(posteriorFile=event_file,
+                                         priorFile=prior_file,spectral=self.spectral,Ns=Ns))
         if em_event_list is not None:
-            modsel.append(Model_selection_em(event_file, inverse_mr_prior = inverse_prior , spectral = self.spectral ))
+            for event_file, inverse_prior in zip(em_event_list, inverse_priors):
+                modsel.append(Model_selection_em(event_file, inverse_mr_prior = inverse_prior , spectral = self.spectral ))
                             
         self.modsel=modsel
         self.Nevents=len(modsel)
