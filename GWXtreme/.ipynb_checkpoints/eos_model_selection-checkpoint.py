@@ -217,7 +217,7 @@ def inverse_prior_func_gaussian_mass(r,m):
             return 0.09**2*np.exp(0.5*(m-2.08)**2/0.09**2)*r**2/m
     
 class Model_selection_em:
-    def __init__(self, posteriorFile, priorFile=None, spectral=False,Ns=4000,mr=False,inverse_mr_prior=None,fixed=False):
+    def __init__(self, posteriorFile, priorFile=None, spectral=False,Ns=4000,mr=False,inverse_mr_prior='regular',fixed=False):
         '''
         Initiates the Bayes factor calculator with the posterior
         samples from the uniform LambdaT, dLambdaT parameter
@@ -1154,6 +1154,30 @@ class Stacking():
 
         else:
             self.event_priors = [None]*len(self.event_list)
+            
+            
+        sanitized_em_event_list = []
+        for event in zip(em_event_list):
+            if os.path.exists(event):
+                sanitized_em_event_list.append(event)
+            else:
+                print('Could not file {}. Skipping event'.format(event))
+        
+            
+        self.em_event_list = sanitized_em_event_list
+
+        if inverse_priors:
+            sanitized_inverse_priors = []
+            for inverse_prior in inverse_priors:
+                if inverse_prior == 'regular' or inverse_prior == 'gaussian':
+                    sanitized_inverse_priors.append(event_prior)
+                else:
+                    print('Priors have to be either \'regular\' or \'normal\'.  ')
+
+            self.inverse_priors = sanitized_inverse_priors
+
+        else:
+            self.inverse_priors = [None]*len(self.em_event_list)
 
         # Right now the method demands a unique prior file for each event
         # This may be changed later.
@@ -1170,7 +1194,7 @@ class Stacking():
                 modsel.append(Model_selection(posteriorFile=event_file,
                                          priorFile=prior_file,spectral=self.spectral,Ns=Ns))
         if em_event_list is not None:
-            for event_file, inverse_prior in zip(em_event_list, inverse_priors):
+            for event_file, inverse_prior in zip(self.em_event_list, self.inverse_priors):
                 modsel.append(Model_selection_em(event_file, inverse_mr_prior = inverse_prior , spectral = self.spectral ))
                             
         self.modsel=modsel
