@@ -1157,7 +1157,7 @@ class Stacking():
             
             
         sanitized_em_event_list = []
-        for event in zip(em_event_list):
+        for event in em_event_list:
             if os.path.exists(event):
                 sanitized_em_event_list.append(event)
             else:
