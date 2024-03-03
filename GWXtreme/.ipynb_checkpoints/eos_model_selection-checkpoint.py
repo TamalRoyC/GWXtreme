@@ -1170,7 +1170,7 @@ class Stacking():
             sanitized_inverse_priors = []
             for inverse_prior in inverse_priors:
                 if inverse_prior == 'regular' or inverse_prior == 'gaussian':
-                    sanitized_inverse_priors.append(event_prior)
+                    sanitized_inverse_priors.append(inverse_prior)
                 else:
                     print('Priors have to be either \'regular\' or \'normal\'.  ')
 
