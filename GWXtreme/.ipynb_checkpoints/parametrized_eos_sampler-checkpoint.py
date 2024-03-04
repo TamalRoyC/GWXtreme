@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 
 
 class mcmc_sampler():
-    def __init__(self, posterior_files, prior_bounds, outfile, posterior_files_em=None, gridN=100, 
+    def __init__(self, posterior_files=None, prior_bounds, outfile, posterior_files_em=None, inverse_priors = None, gridN=100, 
                  nwalkers=100, Nsamples=10000, ndim=4, spectral=True,npool=1,Ns=4000):
         '''
         Initiates Parametric EoS mcmc Sampler Class
@@ -69,6 +69,8 @@ class mcmc_sampler():
         Ns        ::    Number of samples to which the single event q and 
                         lambda_tilde posteriors are downsampled
                         
+        inverse_prior :: provide a list
+                        
         '''
         
         self.posteriorfiles=posterior_files
@@ -79,9 +81,9 @@ class mcmc_sampler():
         self.ndim=ndim
         self.spectral=spectral
         if (posterior_files_em is not None):
-            self.eosmodel=Stacking(posterior_files,em_event_list= posterior_files_em,spectral=spectral,Ns=Ns)
+            self.eosmodel=Stacking(event_list=posterior_files,em_event_list=posterior_files_em,inverse_priors=inverse_priors, spectral=spectral,Ns=Ns)
         else:
-            self.eosmodel=Stacking(posterior_files,spectral=spectral,Ns=Ns)
+            self.eosmodel=Stacking(event_list=posterior_files,spectral=spectral,Ns=Ns)
         self.npool=npool
         self.gridN=gridN
         
@@ -166,7 +168,8 @@ class mcmc_sampler():
                 self.logp=sampler.get_log_prob()
         else:
               sampler=mc.EnsembleSampler(self.nwalkers,self.ndim,self.log_post)
-              sampler.run_mcmc(self.p0,self.nsamples,progress=True) # why red?
+        
+              sampler.run_mcmc(self.p0,self.nsamples,progress=True) 
         
               self.samples=sampler.get_chain()
               self.logp=sampler.get_log_prob() 

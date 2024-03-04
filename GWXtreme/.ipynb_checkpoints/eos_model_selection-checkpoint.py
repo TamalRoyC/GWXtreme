@@ -1182,7 +1182,8 @@ class Stacking():
                 if inverse_prior == 'regular' or inverse_prior == 'gaussian':
                     sanitized_inverse_priors.append(inverse_prior)
                 else:
-                    print('Priors have to be either \'regular\' or \'normal\'.  ')
+                    print('Priors have to be either \'regular\' or \'normal\'. Assigning \' regular \' function r**2/2m by default. ')
+                    sanitized_inverse_priors.append('regular')
 
             self.inverse_priors = sanitized_inverse_priors
 
