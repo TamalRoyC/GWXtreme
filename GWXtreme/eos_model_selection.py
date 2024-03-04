@@ -323,7 +323,7 @@ class Model_selection_em:
         
         return([s, m_min, max_mass])
     
-    def getEoSInterp(self, eosname=None, m_min=0.8, N=100):
+    def getEoSInterp(self, eosname=None, m_min=1.0, N=100):
         '''
         This method accepts one of the NS native equations of state
         and uses that to return a list [s, mass, Λ, max_mass] where
@@ -1105,41 +1105,46 @@ class Stacking():
                         'gaussian' is 0.09**2*np.exp(0.5*(m-2.08)**2/0.09**2)*r**2/m
 
         '''
+        if event_list is not None:
+            if type(event_list) != list:  # event_list must be a list
+                print('All arguments for Stacking must be a list of file-names')
+                sys.exit(0)
+
+            if event_priors:
+                if type(event_priors) != list:
+                    print('All arguments for Stacking must be lists of file-names')
+                    sys.exit(0)
         
-        if type(event_list) != list:  # event_list must be a list
-            print('All arguments for Stacking must be a list of file-names')
-            sys.exit(0)
-
-        if event_priors:
-            if type(event_priors) != list:
-                print('All arguments for Stacking must be lists of file-names')
-                sys.exit(0)
-                
-        if type(em_event_list) != list:  # event_list must be a list
-            print('All arguments for Stacking must be a list of file-names')
-            sys.exit(0)
-
-        if inverse_priors:
-            if type(inverse_priors) != list:
-                print('All arguments for Stacking must be lists of file-names')
+        if em_event_list is not None:
+            if type(em_event_list) != list:  # event_list must be a list
+                print('All arguments for Stacking must be a list of file-names')
                 sys.exit(0)
 
-        if labels is None:
-            labels = [None]*len(event_list)
+            if inverse_priors:
+                if type(inverse_priors) != list:
+                    print('All arguments for Stacking must be lists of file-names')
+                    sys.exit(0)
+                    
+        if event_list:
+            if labels is None:
+                labels = [None]*len(event_list)
 
         # Loop over the list and make sure all the paths exists.
         # Keep only those events whose file exits.
-
+        
         sanitized_event_list = []
         self.labels = []
-        for event, label in zip(event_list, labels):
-            if os.path.exists(event):
-                sanitized_event_list.append(event)
-                self.labels.append(label)
-            else:
-                print('Could not file {}. Skipping event'.format(event))
-        
-            
+        if event_list:
+            for event, label in zip(event_list, labels):
+                if os.path.exists(event):
+                    sanitized_event_list.append(event)
+                    self.labels.append(label)
+                else:
+                    print('Could not file {}. Skipping event'.format(event))
+        else:
+            sanitized_event_list = None
+            self.labels = None
+
         self.event_list = sanitized_event_list
 
         if event_priors:
@@ -1153,17 +1158,22 @@ class Stacking():
             self.event_priors = sanitized_event_priors
 
         else:
-            self.event_priors = [None]*len(self.event_list)
+            if self.event_list:
+                self.event_priors = [None]*len(self.event_list)
+            else:
+                self.event_priors = None
             
             
         sanitized_em_event_list = []
-        for event in em_event_list:
-            if os.path.exists(event):
-                sanitized_em_event_list.append(event)
-            else:
-                print('Could not file {}. Skipping event'.format(event))
-        
-            
+        if em_event_list:
+            for event in em_event_list:
+                if os.path.exists(event):
+                    sanitized_em_event_list.append(event)
+                else:
+                    print('Could not file {}. Skipping event'.format(event))
+        else:
+            sanitized_em_event_list = None
+           
         self.em_event_list = sanitized_em_event_list
 
         if inverse_priors:
@@ -1177,16 +1187,21 @@ class Stacking():
             self.inverse_priors = sanitized_inverse_priors
 
         else:
-            self.inverse_priors = [None]*len(self.em_event_list)
+            if self.em_event_list:
+                self.inverse_priors = [None]*len(self.em_event_list)
+            else:
+                self.inverse_priors = None
 
         # Right now the method demands a unique prior file for each event
         # This may be changed later.
-        if len(self.event_priors) != len(self.event_list):
-            print('Number of prior and posterior files should be same')
-            sys.exit(0)
-        if len(self.inverse_priors) != len(self.em_event_list):
-            print('Number of prior and posterior files should be same')
-            sys.exit(0)
+        if self.event_list:
+            if len(self.event_priors) != len(self.event_list):
+                print('Number of prior and posterior files should be same')
+                sys.exit(0)
+        if self.em_event_list:
+            if len(self.inverse_priors) != len(self.em_event_list):
+                print('Number of prior and posterior files should be same')
+                sys.exit(0)
         self.spectral=spectral
         modsel=[]
         if event_list is not None:
