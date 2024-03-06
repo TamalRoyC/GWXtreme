@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 
 
 class mcmc_sampler():
-    def __init__(self, posterior_files=None, prior_bounds, outfile, posterior_files_em=None, inverse_priors = None, gridN=100, 
+    def __init__(self, prior_bounds, posterior_files=None, posterior_files_em=None, inverse_priors=None, outfile='samples.h5', gridN=100, 
                  nwalkers=100, Nsamples=10000, ndim=4, spectral=True,npool=1,Ns=4000):
         '''
         Initiates Parametric EoS mcmc Sampler Class

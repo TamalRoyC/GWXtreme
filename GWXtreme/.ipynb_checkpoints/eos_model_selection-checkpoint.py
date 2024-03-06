@@ -606,7 +606,7 @@ class Model_selection:
             self.maxMass = np.max(self.data['m1_source'])  # max posterior mass
             self.q_max = np.max(self.data['q'])
             self.q_min = np.min(self.data['q'])
-        #self.min_mass=0.8
+        #self.min_mass=0.8 
         self.m_min=0.8
         # store useful parameters
         self.mc_mean = np.mean(self.data['mc_source'])
@@ -958,7 +958,7 @@ class Model_selection:
                                         gridN=gridN,
                                         var_LambdaT=self.var_LambdaT,
                                         var_q=self.var_q,
-                                        minMass=self.min_mass)
+                                        minMass=min_mass)
 
         return(support2D)
 
