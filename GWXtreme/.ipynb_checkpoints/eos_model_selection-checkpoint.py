@@ -256,7 +256,8 @@ class Model_selection_em:
             Ns = Ns_orig #By default we use all the posterior samples without thinning
         self.data = {k:data[k][0::int(Ns_orig/Ns)] for k in list(data.keys())}
         
-        if inverse_mr_prior == 'gaussian'
+        if inverse_mr_prior == 'gaussian':
+        
             self.inverse_prior = inverse_prior_func_gaussian_mass
         elif inverse_mr_prior == 'regular':
             self.inverse_prior = inverse_prior_func
