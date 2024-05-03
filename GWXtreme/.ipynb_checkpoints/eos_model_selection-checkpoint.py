@@ -257,7 +257,6 @@ class Model_selection_em:
         self.data = {k:data[k][0::int(Ns_orig/Ns)] for k in list(data.keys())}
         
         if inverse_mr_prior == 'gaussian':
-        
             self.inverse_prior = inverse_prior_func_gaussian_mass
         elif inverse_mr_prior == 'regular':
             self.inverse_prior = inverse_prior_func
@@ -1187,9 +1186,11 @@ class Stacking():
             for inverse_prior in inverse_priors:
                 if inverse_prior == 'regular' or inverse_prior == 'gaussian':
                     sanitized_inverse_priors.append(inverse_prior)
+                elif inverse_prior == None:
+                    sanitized_inverse_prior.append(None)
                 else:
-                    print('Priors have to be either \'regular\' or \'normal\'. Assigning \' regular \' function r**2/2m by default. ')
-                    sanitized_inverse_priors.append('regular')
+                    print('Priors have to be either \'regular\' or \'normal\' or None. Assigning None for flat prior by default. ')
+                    sanitized_inverse_priors.append(None)
 
             self.inverse_priors = sanitized_inverse_priors
 
