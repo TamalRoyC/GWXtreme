@@ -1152,8 +1152,8 @@ class Stacking():
 
         self.event_list = sanitized_event_list
 
+        sanitized_event_priors = []
         if event_priors:
-            sanitized_event_priors = []
             for event_prior in event_priors:
                 if os.path.exists(event_prior):
                     sanitized_event_priors.append(event_prior)
@@ -1181,8 +1181,8 @@ class Stacking():
            
         self.em_event_list = sanitized_em_event_list
 
+        sanitized_inverse_priors = []
         if inverse_priors:
-            sanitized_inverse_priors = []
             for inverse_prior in inverse_priors:
                 if inverse_prior == 'regular' or inverse_prior == 'gaussian':
                     sanitized_inverse_priors.append(inverse_prior)
